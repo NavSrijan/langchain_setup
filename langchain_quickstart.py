@@ -183,6 +183,13 @@ class Setup:
     """Complete setup for a demo environment with pre-loaded data."""
     
     def __init__(self, db_path: str = "financial_advisor.db"):
+        # Handle Colab's event loop
+        try:
+            import nest_asyncio
+            nest_asyncio.apply()
+        except (ImportError, RuntimeError):
+            pass
+        
         self.db = DatabaseManager(db_path)
         self.user = None
         self.initialize()
@@ -359,7 +366,6 @@ class GoalProgressTool(BaseTool):
         return self._run(**kwargs)
 
 
-@tool
 def analyze_spending_trend(user_id: int, days: int = 30) -> str:
     """Analyze spending trends over a period."""
     session = get_db().get_session()
@@ -383,6 +389,10 @@ def analyze_spending_trend(user_id: int, days: int = 30) -> str:
         return f"Spending by category (last {days} days):\n{trend}"
     finally:
         session.close()
+
+# Convert function to tool manually
+analyze_spending_trend.name = "analyze_spending_trend"
+analyze_spending_trend.description = "Analyze spending trends over a period. Input: {\"user_id\": 1, \"days\": 30}"
 
 # ============================================================================
 # STATE GRAPH SETUP (Reference)
@@ -541,11 +551,18 @@ class Agent:
         user_msg = HumanMessage(content=query)
         messages = [system_msg, user_msg]
         
+        # First LLM call
         response = llm_with_tools.invoke(messages)
         print(f"\n[Agent] LLM response (has tools: {hasattr(response, 'tool_calls') and bool(response.tool_calls)})")
         
-        if hasattr(response, 'tool_calls') and response.tool_calls:
+        # Handle tool calls if any
+        max_iterations = 5
+        iteration = 0
+        
+        while hasattr(response, 'tool_calls') and response.tool_calls and iteration < max_iterations:
+            iteration += 1
             tool_results = []
+            
             for tool_call in response.tool_calls:
                 tool_name = tool_call["name"]
                 tool_input = tool_call["args"]
@@ -554,16 +571,32 @@ class Agent:
                 
                 tool = next((t for t in tools if t.name == tool_name), None)
                 if tool:
-                    result = tool._run(**tool_input)
+                    # Call tool synchronously
+                    try:
+                        if hasattr(tool, '_run'):
+                            result = tool._run(**tool_input)
+                        elif callable(tool):
+                            result = tool(**tool_input)
+                        else:
+                            result = "Tool not callable"
+                    except Exception as e:
+                        result = f"Tool error: {str(e)}"
+                    
                     tool_results.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
                     print(f"  ← Tool result: {result[:100]}...")
             
+            # Add assistant response and tool results to messages
             messages.append(response)
             messages.extend(tool_results)
-            final_response = llm_with_tools.invoke(messages)
-            return final_response.content
-        else:
+            
+            # Get next response from LLM
+            response = llm_with_tools.invoke(messages)
+        
+        # Return final response
+        if hasattr(response, 'content'):
             return response.content
+        else:
+            return str(response)
 
 def demo():
     """Demo the finished agent at the start of the session."""
