@@ -9,6 +9,12 @@ Features:
 - RAG (Retrieval Augmented Generation)
 - Agent loops with tool calling
 - Token logging and monitoring
+
+Quick Import (Colab or local):
+  from langchain_quickstart import Setup, Agent
+  setup = Setup()
+  agent = Agent(setup.get_user_id())
+  response = agent.run_query("What's my spending?")
 """
 
 import os
@@ -378,79 +384,9 @@ def analyze_spending_trend(user_id: int, days: int = 30) -> str:
     finally:
         session.close()
 
-
-# Financial Advisor Agent
-
-class FinancialAdvisor:
-    def __init__(self, user_id: int, api_key: str = None, model: str = "gemini-2.5-flash"):
-        self.user_id = user_id
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        self.model_name = model
-        self.llm = None
-        self.memory = ConversationBufferWindowMemory(k=5)
-        
-        if HAS_GEMINI and self.api_key:
-            genai.configure(api_key=self.api_key)
-            self.llm = ChatGoogleGenerativeAI(
-                model=model, 
-                google_api_key=self.api_key,
-                temperature=0.7
-            )
-            print(f"✓ LLM initialized: {model}")
-        else:
-            print("⚠ GEMINI API key not found. Tool calling will use mock responses.")
-    
-    def _create_tools(self):
-        return [
-            AggregateSpendByCategoryTool(user_id=self.user_id),
-            ListCategoriesForUserTool(user_id=self.user_id),
-            GoalProgressTool(user_id=self.user_id),
-            analyze_spending_trend,
-        ]
-    
-    async def run_query_with_tools(self, query: str) -> str:
-        if not self.llm:
-            return "❌ LLM not configured. Please provide GEMINI_API_KEY."
-        
-        tools = self._create_tools()
-        llm_with_tools = self.llm.bind_tools(tools)
-        
-        system_msg = SystemMessage(
-            content="You are a financial advisor. Use available tools to analyze the user's finances."
-        )
-        
-        user_msg = HumanMessage(content=query)
-        messages = [system_msg, user_msg]
-        
-        response = llm_with_tools.invoke(messages)
-        print(f"\n[Agent] LLM response (has tools: {hasattr(response, 'tool_calls') and bool(response.tool_calls)})")
-        
-        if hasattr(response, 'tool_calls') and response.tool_calls:
-            tool_results = []
-            for tool_call in response.tool_calls:
-                tool_name = tool_call["name"]
-                tool_input = tool_call["args"]
-                
-                print(f"  → Calling tool: {tool_name} with {tool_input}")
-                
-                tool = next((t for t in tools if t.name == tool_name), None)
-                if tool:
-                    result = await tool._arun(tool_input) if hasattr(tool, '_arun') else tool._run(**tool_input)
-                    tool_results.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
-                    print(f"  ← Tool result: {result[:100]}...")
-            
-            messages.append(response)
-            messages.extend(tool_results)
-            final_response = llm_with_tools.invoke(messages)
-            return final_response.content
-        else:
-            return response.content
-    
-    def run_query(self, query: str) -> str:
-        return asyncio.run(self.run_query_with_tools(query))
-
-
-# State Graph Setup
+# ============================================================================
+# STATE GRAPH SETUP (Reference)
+# ============================================================================
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
@@ -559,51 +495,148 @@ def get_token_stats():
     return _token_logger.get_stats()
 
 # ============================================================================
-# QUICK START EXAMPLES
+# FINISHED AGENT DEMO
 # ============================================================================
 
-def example_tool_usage():
-    """Example: Using a custom tool directly."""
-    print("\n" + "=" * 60)
-    print("Example: Custom Tool Usage")
-    print("=" * 60)
+class Agent:
+    """A complete, working financial advisor agent for demonstration."""
     
-    setup = Setup()
-    user_id = setup.get_user_id()
+    def __init__(self, user_id: int, api_key: str = None, model: str = "gemini-2.5-flash"):
+        self.user_id = user_id
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        self.model_name = model
+        self.llm = None
+        self.memory = ConversationBufferWindowMemory(k=5)
+        
+        if HAS_GEMINI and self.api_key:
+            genai.configure(api_key=self.api_key)
+            self.llm = ChatGoogleGenerativeAI(
+                model=model, 
+                google_api_key=self.api_key,
+                temperature=0.7
+            )
+            print(f"✓ LLM initialized: {model}")
+        else:
+            print("⚠ GEMINI API key not found.")
     
-    tool = AggregateSpendByCategoryTool(user_id=user_id)
-    result = asyncio.run(tool._arun({"category": "food", "metric": "sum", "days": 30}))
-    print(f"Result: {result}")
+    def _create_tools(self):
+        return [
+            AggregateSpendByCategoryTool(user_id=self.user_id),
+            ListCategoriesForUserTool(user_id=self.user_id),
+            GoalProgressTool(user_id=self.user_id),
+            analyze_spending_trend,
+        ]
+    
+    async def run_query_with_tools(self, query: str) -> str:
+        if not self.llm:
+            return "❌ LLM not configured. Please provide GEMINI_API_KEY."
+        
+        tools = self._create_tools()
+        llm_with_tools = self.llm.bind_tools(tools)
+        
+        system_msg = SystemMessage(
+            content="You are a financial advisor. Use available tools to analyze the user's finances."
+        )
+        
+        user_msg = HumanMessage(content=query)
+        messages = [system_msg, user_msg]
+        
+        response = llm_with_tools.invoke(messages)
+        print(f"\n[Agent] LLM response (has tools: {hasattr(response, 'tool_calls') and bool(response.tool_calls)})")
+        
+        if hasattr(response, 'tool_calls') and response.tool_calls:
+            tool_results = []
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"]
+                tool_input = tool_call["args"]
+                
+                print(f"  → Calling tool: {tool_name} with {tool_input}")
+                
+                tool = next((t for t in tools if t.name == tool_name), None)
+                if tool:
+                    result = await tool._arun(tool_input) if hasattr(tool, '_arun') else tool._run(**tool_input)
+                    tool_results.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
+                    print(f"  ← Tool result: {result[:100]}...")
+            
+            messages.append(response)
+            messages.extend(tool_results)
+            final_response = llm_with_tools.invoke(messages)
+            return final_response.content
+        else:
+            return response.content
+    
+    def run_query(self, query: str) -> str:
+        return asyncio.run(self.run_query_with_tools(query))
 
-def example_agent():
-    """Example: Using the FinancialAdvisor agent."""
-    print("\n" + "=" * 60)
-    print("Example: Agent with Tool Calling")
-    print("=" * 60)
+def demo():
+    """Demo the finished agent at the start of the session."""
+    print("\n" + "=" * 70)
+    print("DEMO: Complete Financial Advisor Agent")
+    print("=" * 70)
     
     if not HAS_GEMINI or not os.getenv("GEMINI_API_KEY"):
-        print("⚠ Requires GEMINI_API_KEY environment variable")
+        print("⚠ GEMINI_API_KEY not set. Skipping demo.")
         return
     
     setup = Setup()
     user_id = setup.get_user_id()
     
-    advisor = FinancialAdvisor(user_id, api_key=os.getenv("GEMINI_API_KEY"))
+    agent = Agent(user_id, api_key=os.getenv("GEMINI_API_KEY"))
     
-    queries = [
-        "What's my food spending this month?",
-        "Show me my goal progress",
-        "Analyze my spending trends",
-    ]
+    print("\n📋 This is what we'll build together in this session:")
+    print("   - Custom tools for financial analysis")
+    print("   - An agent that calls tools based on natural language")
+    print("   - Multi-turn conversations with memory")
+    print("\n🚀 Watch it in action:\n")
     
-    for query in queries:
-        print(f"\n📝 Query: {query}")
-        try:
-            result = advisor.run_query(query)
-            print(f"💡 Response: {result[:200]}...")
-        except Exception as e:
-            print(f"❌ Error: {e}")
+    query = "What's my food spending this month and show me my goal progress?"
+    print(f"User: {query}\n")
+    
+    try:
+        result = agent.run_query(query)
+        print(f"\nAgent Response:\n{result}")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+    
+    print("\n" + "=" * 70 + "\n")
+
+# ============================================================================
+# EXPORTS FOR EASY IMPORTING
+# ============================================================================
+
+__all__ = [
+    "Setup",
+    "Agent",
+    "AggregateSpendByCategoryTool",
+    "ListCategoriesForUserTool",
+    "GoalProgressTool",
+    "analyze_spending_trend",
+    "AgentState",
+    "create_stateful_agent",
+    "TokenLogger",
+    "log_tokens",
+    "get_token_stats",
+    "get_db",
+    "demo",
+]
 
 if __name__ == "__main__":
-    print("Financial Advisor module loaded!")
-    print("Import and use: setup = Setup()")
+    print("LangChain Financial Advisor - Quick Start Module")
+    print("=" * 70)
+    print("\nImport Examples:")
+    print("\n1. Local/Colab - Run demo:")
+    print("   python langchain_quickstart.py")
+    print("\n2. Import and use immediately:")
+    print("   from langchain_quickstart import Setup, Agent")
+    print("   setup = Setup()")
+    print("   agent = Agent(setup.get_user_id())")
+    print("   response = agent.run_query('What is my spending?')")
+    print("\n3. Import tools for building your own agent:")
+    print("   from langchain_quickstart import (")
+    print("       Setup, AggregateSpendByCategoryTool, ListCategoriesForUserTool")
+    print("   )")
+    print("   setup = Setup()")
+    print("   # Build your agent step by step...")
+    print("\n" + "=" * 70)
+    
+    demo()
