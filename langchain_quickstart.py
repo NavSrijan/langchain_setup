@@ -246,13 +246,10 @@ class AggregateSpendByCategoryTool(BaseTool):
     db: Any = None
 
     def _run(self, **kwargs) -> str:
-        return asyncio.run(self._arun(kwargs))
-
-    async def _arun(self, params: dict) -> str:
         try:
-            category = params.get("category", "").strip()
-            metric = params.get("metric", "sum")
-            days = params.get("days")
+            category = kwargs.get("category", "").strip()
+            metric = kwargs.get("metric", "sum")
+            days = kwargs.get("days")
             
             if not category or metric not in ["sum", "avg", "count"]:
                 return "Error: category required, metric must be sum/avg/count"
@@ -292,6 +289,9 @@ class AggregateSpendByCategoryTool(BaseTool):
                 session.close()
         except Exception as e:
             return f"Error: {str(e)}"
+
+    async def _arun(self, **kwargs) -> str:
+        return self._run(**kwargs)
 
 
 class ListCategoriesForUserTool(BaseTool):
@@ -410,7 +410,7 @@ def create_stateful_agent(user_id: int, api_key: str = None):
         response = llm_with_tools.invoke(messages)
         return {"messages": [response]}
     
-    async def call_tools(state):
+    def call_tools(state):
         messages = state["messages"]
         last_message = messages[-1]
         
@@ -422,7 +422,7 @@ def create_stateful_agent(user_id: int, api_key: str = None):
         
         for tool_call in tool_calls:
             tool = next(t for t in tools if t.name == tool_call["name"])
-            result = await tool._arun(tool_call["args"])
+            result = tool._run(**tool_call["args"])
             results.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
         
         return {"messages": results}
@@ -527,7 +527,7 @@ class Agent:
             analyze_spending_trend,
         ]
     
-    async def run_query_with_tools(self, query: str) -> str:
+    def run_query(self, query: str) -> str:
         if not self.llm:
             return "❌ LLM not configured. Please provide GEMINI_API_KEY."
         
@@ -554,7 +554,7 @@ class Agent:
                 
                 tool = next((t for t in tools if t.name == tool_name), None)
                 if tool:
-                    result = await tool._arun(tool_input) if hasattr(tool, '_arun') else tool._run(**tool_input)
+                    result = tool._run(**tool_input)
                     tool_results.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
                     print(f"  ← Tool result: {result[:100]}...")
             
@@ -564,9 +564,6 @@ class Agent:
             return final_response.content
         else:
             return response.content
-    
-    def run_query(self, query: str) -> str:
-        return asyncio.run(self.run_query_with_tools(query))
 
 def demo():
     """Demo the finished agent at the start of the session."""
