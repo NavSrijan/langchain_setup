@@ -144,15 +144,35 @@ from faker import Faker
 def populate_dummy_data(db: DB, num_users: int = 5, num_transactions: int = 40, num_goals: int = 5):
     """
     Populates the database with a specified number of dummy users,
-    transactions, and goals.
+    transactions, and goals using meaningful descriptions.
     """
     
     fake = Faker()
     
-    # Define some realistic categories
+    # --- Meaningful Categories and Descriptions ---
+    
     debit_categories = ['Groceries', 'Rent', 'Utilities', 'Dining', 'Transport', 'Entertainment', 'Shopping', 'Healthcare']
     credit_categories = ['Salary', 'Freelance', 'Bonus', 'Gift', 'Investment']
     goal_categories = ['Vacation', 'New Car', 'Emergency Fund', 'Down Payment', 'Retirement', 'Gadget']
+    
+    description_map = {
+        # Debits
+        'Groceries': ['Weekly grocery run', 'Milk, eggs, bread', 'Local supermarket', 'Farmer\'s market purchase', 'Late-night snacks'],
+        'Rent': ['Monthly rent payment', 'Apartment rent', 'Housing payment'],
+        'Utilities': ['Electricity bill', 'Water bill', 'Internet bill', 'Gas bill', 'Phone bill payment'],
+        'Dining': ['Coffee with colleague', 'Lunch takeout', 'Dinner at restaurant', 'Pizza night', 'Quick breakfast'],
+        'Transport': ['Metro card top-up', 'Uber ride to work', 'Bus fare', 'Gas for car', 'Train ticket'],
+        'Entertainment': ['Movie tickets', 'Concert tickets', 'Streaming service', 'Video game', 'Bar tab'],
+        'Shopping': ['New shoes', 'Clothing store', 'Online order', 'Bookstore purchase', 'Electronics store'],
+        'Healthcare': ['Pharmacy - prescription', 'Doctor co-pay', 'Dentist visit', 'Vitamins'],
+        
+        # Credits
+        'Salary': ['Monthly salary', 'Paycheck deposit', 'Bi-weekly pay'],
+        'Freelance': ['Project payment - Client X', 'Invoice #123 paid', 'Web design gig'],
+        'Bonus': ['Annual bonus', 'Performance bonus', 'Holiday bonus'],
+        'Gift': ['Birthday money', 'Cash gift', 'Holiday gift money'],
+        'Investment': ['Stock dividend', 'Investment withdrawal', 'Crypto sale']
+    }
     
     print(f"Populating database with {num_users} users, {num_transactions} transactions, and {num_goals} goals...")
     
@@ -161,14 +181,12 @@ def populate_dummy_data(db: DB, num_users: int = 5, num_transactions: int = 40, 
         # --- 1. Create Users ---
         for _ in range(num_users):
             try:
-                # Use faker to generate unique-ish names and emails
                 user = db.add_user(
                     username=fake.user_name(),
                     email=fake.email()
                 )
                 user_ids.append(user.id)
             except Exception as e:
-                # This catches errors if faker generates a non-unique username/email
                 print(f"Could not add user: {e}")
         
         if not user_ids:
@@ -181,26 +199,29 @@ def populate_dummy_data(db: DB, num_users: int = 5, num_transactions: int = 40, 
             
             if tx_type == 'credit':
                 category = random.choice(credit_categories)
-                # Credits are usually larger amounts
                 amount = round(random.uniform(500.0, 7000.0), 2)
             else:
                 category = random.choice(debit_categories)
-                # Debits are usually smaller
                 amount = round(random.uniform(5.0, 500.0), 2)
+            
+            # **HERE IS THE CHANGE**
+            # Get a meaningful description from the map
+            # Fallback to just using the category name if it's not in the map
+            description_options = description_map.get(category, [category])
+            description = random.choice(description_options)
             
             db.add_transaction(
                 user_id=random.choice(user_ids),
                 amount=amount,
                 transaction_type=tx_type,
                 category=category,
-                description=fake.sentence(nb_words=4),
-                days_ago=random.randint(0, 365) # Transactions from the past year
+                description=description, # <-- Use the new meaningful description
+                days_ago=random.randint(0, 365)
             )
         
         # --- 3. Create Goals ---
         for _ in range(num_goals):
             target = round(random.uniform(1000.0, 25000.0), 2)
-            # Start with some progress on the goal
             current = round(random.uniform(0.0, target * 0.8), 2) 
             
             db.add_goal(
@@ -209,7 +230,7 @@ def populate_dummy_data(db: DB, num_users: int = 5, num_transactions: int = 40, 
                 target_amount=target,
                 current_amount=current,
                 category=random.choice(goal_categories),
-                days_ahead=random.randint(60, 730) # Goals due in the next 2 months to 2 years
+                days_ahead=random.randint(60, 730)
             )
 
         print("✓ Dummy data populated successfully.")
